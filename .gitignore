@@ -1,0 +1,17 @@
+# Environments
+.venv/
+__pycache__/
+*.pyc
+
+# Real & demo databases - never versioned, regenerated locally
+database/*.db 
+!database/schema.sql
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+
+# Streamlit
+.streamlit/secrets.toml
