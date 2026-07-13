@@ -1,4 +1,4 @@
-=========================================================================
+-- =========================================================================
 -- Fitness Tracker — v1 schema (SQLite)
 -- =========================================================================
 -- Dimensional model:
@@ -37,7 +37,7 @@ CREATE TABLE dim_date (
 -- -------------------------------------------------------------------------
 CREATE TABLE profile (
     id          INTEGER PRIMARY KEY CHECK (id = 1),
-    heigth_cm   REAL NOT NULL CHECK (height_cm > 0),
+    height_cm   REAL NOT NULL CHECK (height_cm > 0),
     sex         TEXT NOT NULL CHECK (sex IN ('M', 'F')),
     birth_date  TEXT                                        -- optional, ISO
 );
@@ -60,17 +60,17 @@ CREATE TABLE fact_mass (
 -- PK is the Monday of the ISO week the measurement represents, even if
 -- the reading was physically taken on the following Sunday. `measured_on`
 -- captures the actual reading date for traceability (optional).
-CREATE TABLE facts_perimeters (
+CREATE TABLE fact_perimeters (
     week_start_date     TEXT PRIMARY KEY,                       -- Monday, ISO
     measured_on         TEXT,                                   -- actual reading date, ISO
     neck_cm             REAL NOT NULL CHECK (neck_cm > 0),
     shoulder_cm         REAL NOT NULL CHECK (shoulder_cm > 0),
-    right_arm_cm        REAL NOT NULL CHECK (arm_right_cm > 0),
-    left_arm_cm         REAL NOT NULL CHECK (arm_left_cm > 0),
+    right_arm_cm        REAL NOT NULL CHECK (right_arm_cm > 0),
+    left_arm_cm         REAL NOT NULL CHECK (left_arm_cm > 0),
     waist_cm            REAL NOT NULL CHECK (waist_cm > 0),
     hip_cm              REAL NOT NULL CHECK (hip_cm > 0),
-    right_thigh_cm      REAL NOT NULL CHECK (thigh_right_cm > 0),
-    left_thigh_cm       REAL NOT NULL CHECK (thigh_left_cm > 0),
+    right_thigh_cm      REAL NOT NULL CHECK (right_thigh_cm > 0),
+    left_thigh_cm       REAL NOT NULL CHECK (left_thigh_cm > 0),
     FOREIGN KEY (week_start_date) REFERENCES dim_date(date)
 );
 
@@ -86,8 +86,8 @@ CREATE VIEW v_daily_metrics AS
 SELECT
     fm.date,
     fm.mass_kg,
-    p.heigth_cm,
-    ROUND(fm.mass_kg / ((p.heigth_cm / 100.0) * (p.heigth_cm / 100.0)), 2) AS bmi
+    p.height_cm,
+    ROUND(fm.mass_kg / ((p.height_cm / 100.0) * (p.height_cm / 100.0)), 2) AS bmi
 FROM fact_mass fm 
 CROSS JOIN profile p;
 
@@ -114,7 +114,7 @@ SELECT
     -- Waist-to-hip ratio
     ROUND(fp.waist_cm / fp.hip_cm, 3) AS waist_hip_ratio,
     -- Waist-to-shoulder ratio
-    ROUND(fp.waist_cm, fp.shoulder_cm, 3) AS wisth_shoulder_ratio,
+    ROUND(fp.waist_cm / fp.shoulder_cm, 3) AS wisth_shoulder_ratio,
     -- Body fat % (US Navy) - branches by sex
     CASE
         WHEN p.sex = 'M' THEN
@@ -129,7 +129,7 @@ SELECT
             ROUND(
                 495.0 / (
                     1.29579
-                    - 0.35004 * LOG10(fp.waist_cm + fp.hip_cm + fp.neck_cm)
+                    - 0.35004 * LOG10(fp.waist_cm + fp.hip_cm - fp.neck_cm)
                     + 0.22100 * LOG10(p.height_cm)
                 ) - 450.0,
             2)
