@@ -8,6 +8,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from src.core.models import Profile, MassRecord, PerimeterRecord
 
 # DATABASE_PATH is read from the environment so that switching between
 # synthetic and real data is a matter of configuration, not code changes
