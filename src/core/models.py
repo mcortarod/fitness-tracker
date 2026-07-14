@@ -33,3 +33,24 @@ class PerimeterRecord(BaseModel):
     waist_hip_ratio: float
     waist_shoulder_ratio: float
     body_fat_pct: float
+
+class PerimeterInput(BaseModel):
+    """Input schema for writing a weekly perimeters record.
+
+    Distinct from PerimeterRecord (read model): this one carries the raw
+    measurements we INSERT, while PerimeterRecord carries the computed
+    ratios and body-fat % that the views return on read. Keeping write
+    and read schemas separate is the standard FastAPI pattern (Create vs
+    Read), and it's what makes upsert_perimeters callable by field name
+    instead of by a fragile 8-argument positional list.
+    """
+    week_start_date: date_type
+    measured_on: date_type | None = None
+    neck_cm: float
+    shoulder_cm: float
+    right_arm_cm: float
+    left_arm_cm: float
+    waist_cm: float
+    hip_cm: float
+    right_thigh_cm: float
+    left_thigh_cm: float
