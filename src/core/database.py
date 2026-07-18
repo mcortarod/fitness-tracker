@@ -88,6 +88,27 @@ def upsert_perimeters(record: PerimeterInput) -> None:
             record.model_dump(mode="json"),
         )
 
+def upsert_profile(profile: Profile) -> None:
+    """Insert or update the single user profile (id = 1).
+
+    Takes a Profile model (height, sex, optional birth_date). Uses the
+    same UPSERT pattern as the fact tables: the profile row always
+    reflects the latest values entered, and the id = 1 CHECK constraint
+    guarantees there's never more than one profile. Named parameters keep
+    the mapping explicit.
+    """
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO profile (id, height_cm, sex, birth_date)
+            VALUES (1, :height_cm, :sex, :birth_date)
+            ON CONFLICT(id) DO UPDATE SET
+                height_cm  = excluded.height_cm,
+                sex        = excluded.sex,
+                birth_date = excluded.birth_date
+            """,
+            profile.model_dump(mode="json"),
+        )
 
 def get_profile() -> Profile | None:
     """Return the single user profile, or None if not set up yet.
