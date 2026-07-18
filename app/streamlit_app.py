@@ -7,8 +7,23 @@ src.core.database; all range calculations through src.core.metrics.
 
 import streamlit as st
 from datetime import timedelta
-from src.core.database import get_profile, upsert_profile, upsert_mass, upsert_perimeters
+from src.core.database import (
+    get_profile, 
+    upsert_profile, 
+    upsert_mass, 
+    upsert_perimeters,
+    get_mass_records,
+    get_perimeter_records
+)
 from src.core.models import Profile, PerimeterInput
+from app.transforms import (
+    mass_records_to_df,
+    perimeter_records_to_df,
+    aggregate_perimeters_monthly,
+    RAW_PERIMETER_COLS,
+    DERIVED_METRIC_COLS
+)
+from app.charts import line_chart
 
 # Page-level config must be the first Streamlit call in the script.
 st.set_page_config(page_title="Fitness Tracker", page_icon="📊", layout="wide")
@@ -94,4 +109,79 @@ with tab_record:
 
 with tab_dashboard:
     st.header("Dashboard")
-    st.info("Próximo bloque: evolutivo temporal y KPIs.")
+
+    # Every view CROSS JOINs profile, so without a profile there's simply
+    # no data to plot. Guard here for a clear message instead of empty charts.
+    if profile is None:
+        st.info("Configura tu perfil en la pestaña Registro para ver el dashboard.")
+    else:
+        # ---- Mass (daily) --------------------------------------------
+        st.subheader("Masa corporal")
+        mass_df = mass_records_to_df(get_mass_records())  # no range = full history
+
+        col_chart, col_kpi = st.columns([3, 1])
+        with col_chart:
+            fig_mass = line_chart(
+                mass_df, x_col="date", y_cols=["mass_kg"],
+                labels={"mass_kg": "Masa (kg)"},
+                y_axis_title="kg", title="Evolución de la masa (diaria)",
+            )
+            st.plotly_chart(fig_mass, use_container_width=True)
+        with col_kpi:
+            # BMI as a value, not a line: with constant height its curve is
+            # identical in shape to mass. The latest number is the signal.
+            if not mass_df.empty:
+                st.metric("IMC actual", f"{mass_df.iloc[-1]['bmi']:.1f}")
+
+        # ---- Perimeters (weekly / monthly) ---------------------------
+        st.subheader("Perímetros y métricas")
+
+        # This toggle drives ONLY this section; mass stays daily by design.
+        granularity = st.radio(
+            "Granularidad", options=["Semanal", "Mensual"], horizontal=True,
+        )
+
+        weekly_df = perimeter_records_to_df(get_perimeter_records())
+        # Single switch point: everything downstream is granularity-agnostic
+        # because both frames share the 'period' column (see transforms.py).
+        perim_df = (
+            aggregate_perimeters_monthly(weekly_df)
+            if granularity == "Mensual" else weekly_df
+        )
+
+        # Perimeters (cm): user picks which to overlay — they share a scale.
+        selected = st.multiselect(
+            "Perímetros (cm)",
+            options=list(RAW_PERIMETER_COLS),
+            default=["waist_cm", "hip_cm"],           # headline measurements
+            format_func=lambda c: RAW_PERIMETER_COLS[c],
+        )
+        st.plotly_chart(
+            line_chart(
+                perim_df, x_col="period", y_cols=selected,
+                labels=RAW_PERIMETER_COLS, y_axis_title="cm",
+                title=f"Perímetros ({granularity.lower()})",
+            ),
+            use_container_width=True,
+        )
+
+        # Ratios: own chart — a ~0.8 scale would be crushed beside cm.
+        st.plotly_chart(
+            line_chart(
+                perim_df, x_col="period",
+                y_cols=["waist_hip_ratio", "waist_shoulder_ratio"],
+                labels=DERIVED_METRIC_COLS, y_axis_title="ratio",
+                title=f"Ratios ({granularity.lower()})",
+            ),
+            use_container_width=True,
+        )
+
+        # Body fat: own chart again — ~20% differs from the ratios' scale.
+        st.plotly_chart(
+            line_chart(
+                perim_df, x_col="period", y_cols=["body_fat_pct"],
+                labels=DERIVED_METRIC_COLS, y_axis_title="%",
+                title=f"% graso ({granularity.lower()})",
+            ),
+            use_container_width=True,
+        )
