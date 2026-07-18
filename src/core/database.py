@@ -87,3 +87,59 @@ def upsert_perimeters(record: PerimeterInput) -> None:
             """,
             record.model_dump(mode="json"),
         )
+
+
+def get_profile() -> Profile | None:
+    """Return the single user profile, or None if not set up yet.
+
+    The profile table is constrained to exactly one row (id = 1), so we
+    fetch that row directly. Returns None instead of raising when the
+    profile hasn't been created, so the UI can show a "set up your
+    profile" prompt on first run rather than crashing.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT height_cm, sex, birth_date FROM profile WHERE id = 1"
+        ).fetchone()
+    return Profile(**row) if row else None
+
+def get_mass_records(start_date: str, end_date: str) -> list[MassRecord]:
+    """Return daily mass + BMI records within [start_date, end_date].
+
+    Reads from v_daily_metrics (not fact_mass) so BMI comes precomputed
+    by the view — the app never needs raw mass without its derived
+    metric. Ordered by date so the caller can treat the list as a time
+    series directly (first = range start, last = latest) for both the
+    chart and the KPI comparison.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT date, mass_kg, bmi
+            FROM v_daily_metrics
+            WHERE date BETWEEN ? AND ?
+            ORDER BY date
+            """,
+            (start_date, end_date),
+        ).fetchall()
+    return [MassRecord(**row) for row in rows]
+
+def get_perimeter_records(start_date: str, end_date: str) -> list[PerimeterRecord]:
+    """Return weekly perimeter metrics within [start_date, end_date].
+
+    Reads from v_weekly_metrics so ratios and body-fat % come precomputed.
+    Filtered by week_start_date and ordered chronologically, same time-
+    series contract as get_mass_records.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT week_start_date, waist_cm, hip_cm, neck_cm, shoulder_cm,
+                   waist_hip_ratio, waist_shoulder_ratio, body_fat_pct
+            FROM v_weekly_metrics
+            WHERE week_start_date BETWEEN ? AND ?
+            ORDER BY week_start_date
+            """,
+            (start_date, end_date),
+        ).fetchall()
+    return [PerimeterRecord(**row) for row in rows]
