@@ -114,7 +114,7 @@ SELECT
     -- Waist-to-hip ratio
     ROUND(fp.waist_cm / fp.hip_cm, 3) AS waist_hip_ratio,
     -- Waist-to-shoulder ratio
-    ROUND(fp.waist_cm / fp.shoulder_cm, 3) AS wisth_shoulder_ratio,
+    ROUND(fp.waist_cm / fp.shoulder_cm, 3) AS waist_shoulder_ratio,
     -- Body fat % (US Navy) - branches by sex
     CASE
         WHEN p.sex = 'M' THEN
