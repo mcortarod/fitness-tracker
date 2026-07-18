@@ -16,4 +16,4 @@ dependencies = [
 [tool.setuptools]
 # Declare which folders are importable packages. Listing them explicitly
 # is clearer than auto-discovery for a small project and documents intent.
-packages = ["src", "src.core"]
+packages = ["src", "src.core", "app"]
