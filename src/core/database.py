@@ -124,33 +124,43 @@ def get_profile() -> Profile | None:
         ).fetchone()
     return Profile(**row) if row else None
 
-def get_mass_records(start_date: str, end_date: str) -> list[MassRecord]:
-    """Return daily mass + BMI records within [start_date, end_date].
+def get_mass_records(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[MassRecord]:
+    """Return daily mass + BMI records, optionally bounded by a date range.
 
-    Reads from v_daily_metrics (not fact_mass) so BMI comes precomputed
-    by the view — the app never needs raw mass without its derived
-    metric. Ordered by date so the caller can treat the list as a time
-    series directly (first = range start, last = latest) for both the
-    chart and the KPI comparison.
+    Both bounds are optional and independent: pass neither for the full
+    history (the time-series/dashboard case), or either/both to clamp the
+    range (the KPI case). COALESCE lets a missing bound fall back to an
+    open end without building SQL strings by hand — the query stays a
+    single parametrized statement, so there's no SQL-injection surface
+    and no branching query text to keep in sync.
     """
     with get_connection() as conn:
         rows = conn.execute(
             """
             SELECT date, mass_kg, bmi
             FROM v_daily_metrics
-            WHERE date BETWEEN ? AND ?
+            WHERE date >= COALESCE(?, date)
+              AND date <= COALESCE(?, date)
             ORDER BY date
             """,
             (start_date, end_date),
         ).fetchall()
     return [MassRecord(**row) for row in rows]
 
-def get_perimeter_records(start_date: str, end_date: str) -> list[PerimeterRecord]:
-    """Return weekly perimeter metrics within [start_date, end_date].
+def get_perimeter_records(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[PerimeterRecord]:
+    """Return weekly perimeter metrics, optionally bounded by a date range.
 
-    Reads from v_weekly_metrics so ratios and body-fat % come precomputed.
-    Filtered by week_start_date and ordered chronologically, same time-
-    series contract as get_mass_records.
+    Same open-range contract as get_mass_records: pass neither bound for
+    the full history (dashboard case), or either/both to clamp it (KPI
+    case). COALESCE keeps the statement single and parametrized instead of
+    branching the query text. Bounds are compared against week_start_date
+    (the ISO Monday), so a range clamps by the week each record represents.
     """
     with get_connection() as conn:
         rows = conn.execute(
@@ -158,7 +168,8 @@ def get_perimeter_records(start_date: str, end_date: str) -> list[PerimeterRecor
             SELECT week_start_date, waist_cm, hip_cm, neck_cm, shoulder_cm,
                    waist_hip_ratio, waist_shoulder_ratio, body_fat_pct
             FROM v_weekly_metrics
-            WHERE week_start_date BETWEEN ? AND ?
+            WHERE week_start_date >= COALESCE(?, week_start_date)
+              AND week_start_date <= COALESCE(?, week_start_date)
             ORDER BY week_start_date
             """,
             (start_date, end_date),
