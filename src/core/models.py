@@ -54,3 +54,16 @@ class PerimeterInput(BaseModel):
     hip_cm: float
     right_thigh_cm: float
     left_thigh_cm: float
+
+class KpiResult(BaseModel):
+    """Result of comparing the first vs. last value of a selected range.
+
+    Purely numeric and metric-agnostic: it reports what changed, not
+    whether that change is 'good'. Interpreting direction (is a drop
+    desirable?) is a presentation concern, kept out of the calculation
+    so this stays reusable across every metric.
+    """
+    start_value: float      # first value in the range
+    end_value: float        # latest value in the range
+    delta_absolute: float   # end - start
+    delta_percent: float    # (end - start) / start * 100
