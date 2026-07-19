@@ -16,3 +16,6 @@ database/*.db
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Snapshot
+project_snapshot.txt
