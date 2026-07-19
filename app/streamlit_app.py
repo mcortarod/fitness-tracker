@@ -27,6 +27,29 @@ from app.transforms import (
 from app.charts import line_chart
 from src.core.metrics import compute_kpi
 
+from typing import NamedTuple
+
+class KpiSpec(NamedTuple):
+    """Declarative config for one KPI card.
+
+    A NamedTuple (not a plain tuple) so fields are read by name instead of
+    by position — the list had grown past the point where positional access
+    stays readable. Immutable on purpose: these are static config rows, not
+    data that flows.
+
+    `source` names WHICH frame to read ("mass" or "weekly") rather than
+    holding the DataFrame itself: the frames are loaded per rerun, so they
+    don't belong inside what is otherwise a compile-time constant. The loop
+    resolves the label to the actual frame.
+    """
+    label: str             # KPI card title
+    source: str            # "mass" | "weekly": which DataFrame to read
+    value_col: str         # column holding the metric
+    date_col: str          # column to filter the range on
+    unit: str              # suffix shown after the value ("kg", "%", "")
+    lower_is_better: bool  # True -> down is green ("inverse"); False -> "normal"
+    decimals: int          # precision for value and absolute delta
+
 # Page-level config must be the first Streamlit call in the script.
 st.set_page_config(page_title="Fitness Tracker", page_icon="📊", layout="wide")
 
@@ -83,35 +106,43 @@ if section == "📊 Dashboard":
         with col_to:
             kpi_end = st.date_input("Hasta", value=default_end, key="kpi_end")
 
-        # Declarative spec: (label, df, value_col, date_col, unit,
-        # lower_is_better). Adding a KPI later is one line here — no new widget
-        # code. `lower_is_better` drives the delta color: metrics we want to
-        # shrink are True; shoulder/waist grows toward ~1.618, so it's False.
+        # Declarative specs: each row is one KPI card. Adding a KPI is one
+        # line here — no new widget code. `decimals` gives ratios the extra
+        # precision they need: at 1 decimal a 0.85->0.83 move renders as a
+        # misleading "-0.0". `lower_is_better` drives the delta color.
         kpi_specs = [
-            ("Masa",              mass_df,   "mass_kg",              "date",   "kg", True),
-            ("IMC",               mass_df,   "bmi",                  "date",   "",   True),
-            ("% graso",           weekly_df, "body_fat_pct",         "period", "%",  True),
-            ("Cintura",           weekly_df, "waist_cm",             "period", "cm", True),
-            ("Ratio cint-cad",    weekly_df, "waist_hip_ratio",      "period", "",   True),
-            ("Ratio hombro-cint", weekly_df, "shoulder_waist_ratio", "period", "",   False),
+            KpiSpec("Masa",              "mass",   "mass_kg",              "date",   "kg", True,  1),
+            KpiSpec("IMC",               "mass",   "bmi",                  "date",   "",   True,  1),
+            KpiSpec("% graso",           "weekly", "body_fat_pct",         "period", "%",  True,  1),
+            KpiSpec("Cintura",           "weekly", "waist_cm",             "period", "cm", True,  1),
+            KpiSpec("Ratio cint-cad",    "weekly", "waist_hip_ratio",      "period", "",   True,  2),
+            KpiSpec("Ratio hombro-cint", "weekly", "shoulder_waist_ratio", "period", "",   False, 2),
         ]
 
+        # Resolve each spec's `source` label to the frame loaded up top. This
+        # is why the frame isn't stored inside the spec: it's a per-rerun value.
+        frames = {"mass": mass_df, "weekly": weekly_df}
+
         cols = st.columns(len(kpi_specs))
-        for col, (label, df, value_col, date_col, unit, lower_is_better) in zip(cols, kpi_specs):
-            values = series_in_range(df, value_col, date_col, kpi_start, kpi_end)
+        for col, spec in zip(cols, kpi_specs):
+            df = frames[spec.source]
+            values = series_in_range(df, spec.value_col, spec.date_col, kpi_start, kpi_end)
             kpi = compute_kpi(values)
             with col:
                 if kpi is None:
-                    st.metric(label, "—")   # no data in range
+                    st.metric(spec.label, "—")   # no data in range
                 else:
                     st.metric(
-                        label,
-                        f"{kpi.end_value:.1f}{unit}",
-                        delta=f"{kpi.delta_absolute:+.1f}{unit} ({kpi.delta_percent:+.1f}%)",
-                        # Green = movement in the desired direction. Shrinking
-                        # metrics use "inverse" (down = green); shoulder/waist
-                        # grows toward its ideal, so it uses "normal".
-                        delta_color="inverse" if lower_is_better else "normal",
+                        spec.label,
+                        f"{kpi.end_value:.{spec.decimals}f}{spec.unit}",
+                        delta=(
+                            f"{kpi.delta_absolute:+.{spec.decimals}f}{spec.unit} "
+                            f"({kpi.delta_percent:+.1f}%)"
+                        ),
+                        # Green = desired direction. Shrinking metrics use
+                        # "inverse" (down = green); shoulder/waist grows toward
+                        # its ideal, so "normal".
+                        delta_color="inverse" if spec.lower_is_better else "normal",
                     )
 
         # ---- Mass (daily) --------------------------------------------
