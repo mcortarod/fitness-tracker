@@ -79,37 +79,44 @@ if section == "📊 Dashboard":
     if profile is None:
         st.info("Configura tu perfil en la pestaña Registro para ver el dashboard.")
     else:
-        # Load both frames ONCE, up front: the KPI block (now first) and the
-        # charts below all read from them — one DB read per rerun, reused.
-        # Both hold full history; the KPI block filters a range in memory.
-        mass_df = mass_records_to_df(get_mass_records())
-        weekly_df = perimeter_records_to_df(get_perimeter_records())
-
-        # ---- KPIs by date range (top of the dashboard) ---------------
-        st.subheader("KPIs por rango")
-
-        # KPIs always compare RAW weekly values (weekly_df), never the monthly
-        # aggregate — the range's true first-vs-last points, independent of the
-        # chart granularity toggle further down.
-
-        # Default range: full span of recorded mass, so KPIs are populated on
-        # first load instead of forcing the user to pick dates.
-        if not mass_df.empty:
-            default_start = mass_df.iloc[0]["date"].date()
-            default_end = mass_df.iloc[-1]["date"].date()
-        else:
-            default_start = default_end = date.today()
-
+        # ---- Global date range (drives EVERYTHING below) -------------
+        # This selector comes BEFORE loading data because the range is now an
+        # input to the DB reads, not a post-filter. Default: Jan 1st of the
+        # current year -> today. `max_value=today` forbids picking future
+        # dates. Changing it re-reads both frames, already clamped in SQL.
+        today = date.today()
         col_from, col_to = st.columns(2)
         with col_from:
-            kpi_start = st.date_input("Desde", value=default_start, key="kpi_start")
+            range_start = st.date_input(
+                "Desde", value=date(today.year, 1, 1),
+                max_value=today, key="range_start",
+            )
         with col_to:
-            kpi_end = st.date_input("Hasta", value=default_end, key="kpi_end")
+            range_end = st.date_input(
+                "Hasta", value=today, max_value=today, key="range_end",
+            )
 
-        # Declarative specs: each row is one KPI card. Adding a KPI is one
-        # line here — no new widget code. `decimals` gives ratios the extra
-        # precision they need: at 1 decimal a 0.85->0.83 move renders as a
-        # misleading "-0.0". `lower_is_better` drives the delta color.
+        # Load both frames ONCE, already clamped to the range in the query
+        # (Option A: filter in the DB, using the start/end params that
+        # database.py has exposed since 2026-07-18). Passing ISO strings, the
+        # format the SQL layer compares against. One read per frame per rerun.
+        mass_df = mass_records_to_df(
+            get_mass_records(range_start.isoformat(), range_end.isoformat())
+        )
+        weekly_df = perimeter_records_to_df(
+            get_perimeter_records(range_start.isoformat(), range_end.isoformat())
+        )
+
+        # ---- KPIs (top of the dashboard) -----------------------------
+        st.subheader("KPIs")
+
+        # KPIs compare RAW weekly values (weekly_df), never the monthly
+        # aggregate — the range's true first-vs-last points, independent of the
+        # chart granularity toggle further down. series_in_range still applies,
+        # but since the frame is already range-clamped in SQL its date filter
+        # is now a no-op — it just extracts the column as list[float] for
+        # compute_kpi. (Simplifying its signature is Phase 4 work: it has
+        # pending tests.)
         kpi_specs = [
             KpiSpec("Masa",              "mass",   "mass_kg",              "date",   "kg", True,  1),
             KpiSpec("IMC",               "mass",   "bmi",                  "date",   "",   True,  1),
@@ -126,7 +133,7 @@ if section == "📊 Dashboard":
         cols = st.columns(len(kpi_specs))
         for col, spec in zip(cols, kpi_specs):
             df = frames[spec.source]
-            values = series_in_range(df, spec.value_col, spec.date_col, kpi_start, kpi_end)
+            values = series_in_range(df, spec.value_col, spec.date_col, range_start, range_end)
             kpi = compute_kpi(values)
             with col:
                 if kpi is None:
@@ -146,8 +153,6 @@ if section == "📊 Dashboard":
                     )
 
         # ---- Mass (daily) --------------------------------------------
-        # Full width now: the standalone "IMC actual" metric that used to sit
-        # beside this chart is gone — IMC lives in the KPI block above.
         st.subheader("Masa corporal")
         fig_mass = line_chart(
             mass_df, x_col="date", y_cols=["mass_kg"],
