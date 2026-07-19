@@ -56,23 +56,74 @@ if section == "📊 Dashboard":
     if profile is None:
         st.info("Configura tu perfil en la pestaña Registro para ver el dashboard.")
     else:
-        # ---- Mass (daily) --------------------------------------------
-        st.subheader("Masa corporal")
-        mass_df = mass_records_to_df(get_mass_records())  # no range = full history
+        # Load both frames ONCE, up front: the KPI block (now first) and the
+        # charts below all read from them — one DB read per rerun, reused.
+        # Both hold full history; the KPI block filters a range in memory.
+        mass_df = mass_records_to_df(get_mass_records())
+        weekly_df = perimeter_records_to_df(get_perimeter_records())
 
-        col_chart, col_kpi = st.columns([3, 1])
-        with col_chart:
-            fig_mass = line_chart(
-                mass_df, x_col="date", y_cols=["mass_kg"],
-                labels={"mass_kg": "Masa (kg)"},
-                y_axis_title="kg", title="Evolución de la masa (diaria)",
-            )
-            st.plotly_chart(fig_mass, use_container_width=True)
-        with col_kpi:
-            # BMI as a value, not a line: with constant height its curve is
-            # identical in shape to mass. The latest number is the signal.
-            if not mass_df.empty:
-                st.metric("IMC actual", f"{mass_df.iloc[-1]['bmi']:.1f}")
+        # ---- KPIs by date range (top of the dashboard) ---------------
+        st.subheader("KPIs por rango")
+
+        # KPIs always compare RAW weekly values (weekly_df), never the monthly
+        # aggregate — the range's true first-vs-last points, independent of the
+        # chart granularity toggle further down.
+
+        # Default range: full span of recorded mass, so KPIs are populated on
+        # first load instead of forcing the user to pick dates.
+        if not mass_df.empty:
+            default_start = mass_df.iloc[0]["date"].date()
+            default_end = mass_df.iloc[-1]["date"].date()
+        else:
+            default_start = default_end = date.today()
+
+        col_from, col_to = st.columns(2)
+        with col_from:
+            kpi_start = st.date_input("Desde", value=default_start, key="kpi_start")
+        with col_to:
+            kpi_end = st.date_input("Hasta", value=default_end, key="kpi_end")
+
+        # Declarative spec: (label, df, value_col, date_col, unit,
+        # lower_is_better). Adding a KPI later is one line here — no new widget
+        # code. `lower_is_better` drives the delta color: metrics we want to
+        # shrink are True; shoulder/waist grows toward ~1.618, so it's False.
+        kpi_specs = [
+            ("Masa",              mass_df,   "mass_kg",              "date",   "kg", True),
+            ("IMC",               mass_df,   "bmi",                  "date",   "",   True),
+            ("% graso",           weekly_df, "body_fat_pct",         "period", "%",  True),
+            ("Cintura",           weekly_df, "waist_cm",             "period", "cm", True),
+            ("Ratio cint-cad",    weekly_df, "waist_hip_ratio",      "period", "",   True),
+            ("Ratio hombro-cint", weekly_df, "shoulder_waist_ratio", "period", "",   False),
+        ]
+
+        cols = st.columns(len(kpi_specs))
+        for col, (label, df, value_col, date_col, unit, lower_is_better) in zip(cols, kpi_specs):
+            values = series_in_range(df, value_col, date_col, kpi_start, kpi_end)
+            kpi = compute_kpi(values)
+            with col:
+                if kpi is None:
+                    st.metric(label, "—")   # no data in range
+                else:
+                    st.metric(
+                        label,
+                        f"{kpi.end_value:.1f}{unit}",
+                        delta=f"{kpi.delta_absolute:+.1f}{unit} ({kpi.delta_percent:+.1f}%)",
+                        # Green = movement in the desired direction. Shrinking
+                        # metrics use "inverse" (down = green); shoulder/waist
+                        # grows toward its ideal, so it uses "normal".
+                        delta_color="inverse" if lower_is_better else "normal",
+                    )
+
+        # ---- Mass (daily) --------------------------------------------
+        # Full width now: the standalone "IMC actual" metric that used to sit
+        # beside this chart is gone — IMC lives in the KPI block above.
+        st.subheader("Masa corporal")
+        fig_mass = line_chart(
+            mass_df, x_col="date", y_cols=["mass_kg"],
+            labels={"mass_kg": "Masa (kg)"},
+            y_axis_title="kg", title="Evolución de la masa (diaria)",
+        )
+        st.plotly_chart(fig_mass, use_container_width=True)
 
         # ---- Perimeters (weekly / monthly) ---------------------------
         st.subheader("Perímetros y métricas")
@@ -82,7 +133,6 @@ if section == "📊 Dashboard":
             "Granularidad", options=["Semanal", "Mensual"], horizontal=True,
         )
 
-        weekly_df = perimeter_records_to_df(get_perimeter_records())
         # Single switch point: everything downstream is granularity-agnostic
         # because both frames share the 'period' column (see transforms.py).
         perim_df = (
@@ -126,54 +176,6 @@ if section == "📊 Dashboard":
             ),
             use_container_width=True,
         )
-
-        # ---- KPIs by date range --------------------------------------
-        st.subheader("KPIs por rango")
-
-        # Reuses mass_df / weekly_df already loaded above (full history):
-        # one DB read, filtered in memory per metric. KPIs always compare
-        # RAW weekly values, never the monthly aggregate — the range's true
-        # first-vs-last points, independent of the chart's granularity toggle.
-
-        # Default range: full span of recorded mass, so the KPIs are
-        # populated on first load instead of forcing the user to pick dates.
-        if not mass_df.empty:
-            default_start = mass_df.iloc[0]["date"].date()
-            default_end = mass_df.iloc[-1]["date"].date()
-        else:
-            default_start = default_end = date.today()
-
-        col_from, col_to = st.columns(2)
-        with col_from:
-            kpi_start = st.date_input("Desde", value=default_start, key="kpi_start")
-        with col_to:
-            kpi_end = st.date_input("Hasta", value=default_end, key="kpi_end")
-
-        # Declarative spec: (label, dataframe, column, date_col, unit). Adding
-        # a KPI later is one line here — no new widget code.
-        kpi_specs = [
-            ("Masa",            mass_df,   "mass_kg",             "date",   "kg"),
-            ("Cintura",         weekly_df, "waist_cm",            "period", "cm"),
-            ("Cadera",          weekly_df, "hip_cm",              "period", "cm"),
-            ("Ratio cint-cad",  weekly_df, "waist_hip_ratio",    "period", ""),
-            ("% graso",         weekly_df, "body_fat_pct",        "period", "%"),
-        ]
-
-        cols = st.columns(len(kpi_specs))
-        for col, (label, df, value_col, date_col, unit) in zip(cols, kpi_specs):
-            values = series_in_range(df, value_col, date_col, kpi_start, kpi_end)
-            kpi = compute_kpi(values)
-            with col:
-                if kpi is None:
-                    st.metric(label, "—")   # no data in range
-                else:
-                    st.metric(
-                        label,
-                        f"{kpi.end_value:.1f}{unit}",
-                        delta=f"{kpi.delta_absolute:+.1f}{unit} ({kpi.delta_percent:+.1f}%)",
-                        delta_color="inverse",  # down = green: the whole app's
-                                                # metrics improve by decreasing
-                    )
 
 elif section == "📝 Registro":
     st.header("Registro de datos")
