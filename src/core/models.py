@@ -31,7 +31,7 @@ class PerimeterRecord(BaseModel):
     neck_cm: float
     shoulder_cm: float
     waist_hip_ratio: float
-    waist_shoulder_ratio: float
+    shoulder_waist_ratio: float
     body_fat_pct: float
 
 class PerimeterInput(BaseModel):

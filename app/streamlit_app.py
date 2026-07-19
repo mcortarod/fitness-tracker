@@ -171,7 +171,7 @@ with tab_dashboard:
         st.plotly_chart(
             line_chart(
                 perim_df, x_col="period",
-                y_cols=["waist_hip_ratio", "waist_shoulder_ratio"],
+                y_cols=["waist_hip_ratio", "shoulder_waist_ratio"],
                 labels=DERIVED_METRIC_COLS, y_axis_title="ratio",
                 title=f"Ratios ({granularity.lower()})",
             ),

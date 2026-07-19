@@ -113,8 +113,8 @@ SELECT
     p.sex,
     -- Waist-to-hip ratio
     ROUND(fp.waist_cm / fp.hip_cm, 3) AS waist_hip_ratio,
-    -- Waist-to-shoulder ratio
-    ROUND(fp.waist_cm / fp.shoulder_cm, 3) AS waist_shoulder_ratio,
+    -- Shoulder-to-waist ratio (Adonis index, ideal ≈ 1.618, higher is better)
+    ROUND(fp.shoulder_cm / fp.waist_cm, 3) AS shoulder_waist_ratio,
     -- Body fat % (US Navy) - branches by sex
     CASE
         WHEN p.sex = 'M' THEN

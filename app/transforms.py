@@ -33,7 +33,7 @@ RAW_PERIMETER_COLS: dict[str, str] = {
 }
 DERIVED_METRIC_COLS: dict[str, str] = {
     "waist_hip_ratio": "Ratio cintura-cadera",
-    "waist_shoulder_ratio": "Ratio cintura-hombros",
+    "shoulder_waist_ratio": "Ratio hombro-cintura",
     "body_fat_pct": "% graso",
 }
 # Every numeric perimeter-side column, used when averaging monthly.

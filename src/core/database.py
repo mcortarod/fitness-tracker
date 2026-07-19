@@ -166,7 +166,7 @@ def get_perimeter_records(
         rows = conn.execute(
             """
             SELECT week_start_date, waist_cm, hip_cm, neck_cm, shoulder_cm,
-                   waist_hip_ratio, waist_shoulder_ratio, body_fat_pct
+                   waist_hip_ratio, shoulder_waist_ratio, body_fat_pct
             FROM v_weekly_metrics
             WHERE week_start_date >= COALESCE(?, week_start_date)
               AND week_start_date <= COALESCE(?, week_start_date)
