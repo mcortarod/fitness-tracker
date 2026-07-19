@@ -6,7 +6,7 @@ src.core.database; all range calculations through src.core.metrics.
 """
 
 import streamlit as st
-from datetime import timedelta
+from datetime import date, timedelta
 from src.core.database import (
     get_profile, 
     upsert_profile, 
@@ -20,10 +20,12 @@ from app.transforms import (
     mass_records_to_df,
     perimeter_records_to_df,
     aggregate_perimeters_monthly,
+    series_in_range,
     RAW_PERIMETER_COLS,
     DERIVED_METRIC_COLS
 )
 from app.charts import line_chart
+from src.core.metrics import compute_kpi
 
 # Page-level config must be the first Streamlit call in the script.
 st.set_page_config(page_title="Fitness Tracker", page_icon="📊", layout="wide")
@@ -185,3 +187,51 @@ with tab_dashboard:
             ),
             use_container_width=True,
         )
+
+        # ---- KPIs by date range --------------------------------------
+        st.subheader("KPIs por rango")
+
+        # Reuses mass_df / weekly_df already loaded above (full history):
+        # one DB read, filtered in memory per metric. KPIs always compare
+        # RAW weekly values, never the monthly aggregate — the range's true
+        # first-vs-last points, independent of the chart's granularity toggle.
+
+        # Default range: full span of recorded mass, so the KPIs are
+        # populated on first load instead of forcing the user to pick dates.
+        if not mass_df.empty:
+            default_start = mass_df.iloc[0]["date"].date()
+            default_end = mass_df.iloc[-1]["date"].date()
+        else:
+            default_start = default_end = date.today()
+
+        col_from, col_to = st.columns(2)
+        with col_from:
+            kpi_start = st.date_input("Desde", value=default_start, key="kpi_start")
+        with col_to:
+            kpi_end = st.date_input("Hasta", value=default_end, key="kpi_end")
+
+        # Declarative spec: (label, dataframe, column, date_col, unit). Adding
+        # a KPI later is one line here — no new widget code.
+        kpi_specs = [
+            ("Masa",            mass_df,   "mass_kg",             "date",   "kg"),
+            ("Cintura",         weekly_df, "waist_cm",            "period", "cm"),
+            ("Cadera",          weekly_df, "hip_cm",              "period", "cm"),
+            ("Ratio cint-cad",  weekly_df, "waist_hip_ratio",    "period", ""),
+            ("% graso",         weekly_df, "body_fat_pct",        "period", "%"),
+        ]
+
+        cols = st.columns(len(kpi_specs))
+        for col, (label, df, value_col, date_col, unit) in zip(cols, kpi_specs):
+            values = series_in_range(df, value_col, date_col, kpi_start, kpi_end)
+            kpi = compute_kpi(values)
+            with col:
+                if kpi is None:
+                    st.metric(label, "—")   # no data in range
+                else:
+                    st.metric(
+                        label,
+                        f"{kpi.end_value:.1f}{unit}",
+                        delta=f"{kpi.delta_absolute:+.1f}{unit} ({kpi.delta_percent:+.1f}%)",
+                        delta_color="inverse",  # down = green: the whole app's
+                                                # metrics improve by decreasing
+                    )

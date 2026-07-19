@@ -19,6 +19,7 @@ were already computed upstream.
 from __future__ import annotations
 import pandas as pd
 from src.core.models import MassRecord, PerimeterRecord
+from datetime import date as date_type
 
 # --- Column groupings & human-readable labels -------------------------
 # Split by scale so the UI never mixes centimetres with dimensionless
@@ -94,3 +95,27 @@ def aggregate_perimeters_monthly(weekly_df: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
     return monthly
+
+def series_in_range(
+    df: pd.DataFrame,
+    value_col: str,
+    date_col: str,
+    start: date_type,
+    end: date_type,
+) -> list[float]:
+    """Extract one metric's values within [start, end] as a plain list.
+
+    The bridge between the DataFrames the dashboard already holds and
+    compute_kpi, which wants a bare list[float]. Filtering here (not in the
+    UI) keeps streamlit_app.py declarative and makes this slice-and-extract
+    unit-testable in Phase 4 — including the empty-range case, which returns
+    [] so compute_kpi can answer None without the UI branching on dates.
+
+    Bounds are inclusive and compared as datetimes, matching the datetime64
+    columns that transforms.py produces.
+    """
+    if df.empty or value_col not in df.columns:
+        return []
+
+    mask = (df[date_col] >= pd.Timestamp(start)) & (df[date_col] <= pd.Timestamp(end))
+    return df.loc[mask, value_col].tolist()
